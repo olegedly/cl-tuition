@@ -201,6 +201,60 @@ Internal helper for markdown rendering."
 
     (format nil "~{~A~^~%~}" (nreverse lines))))
 
+;;; ---------------------------------------------------------------------------
+;;; Wrapping what is not a paragraph
+;;;
+;;; A paragraph is not the only line that can outgrow the pane. A quote, a
+;;; heading and a line of code reach the right edge too, and a reader who cannot
+;;; see the end of one has lost the thing itself rather than its shape. So every
+;;; block that emits text wraps at the width the renderer was handed, and what it
+;;; wraps with is what says what the line is -- which is why a quote's prefix
+;;; leads every line the quote takes, and a code line's next line is what its own
+;;; indentation is lined up against.
+
+(defun wrap-with-prefix (text prefix width)
+  "TEXT wrapped to WIDTH, with PREFIX leading every line it takes.
+WIDTH is the whole line's budget, so the room for text is what PREFIX leaves."
+  (format nil "~{~A~^~%~}"
+          (mapcar (lambda (line) (concatenate 'string prefix line))
+                  (split-string-by-newline
+                   (wrap-text text (max 1 (- width (visible-length prefix))))))))
+
+(defun wrap-preformatted (line width)
+  "LINE as the lines that fit in WIDTH, breaking only where LINE had a space.
+Preformatted text is not prose: its spaces are content, so none is collapsed and
+no word is cut -- a token wider than WIDTH is left whole rather than halved -- and
+every line after the first begins under the one it came from."
+  (when (<= (visible-length line) width)
+    (return-from wrap-preformatted (list line)))
+  (let* ((head (or (position-if-not (lambda (c) (member c '(#\Space #\Tab))) line)
+                   (length line)))
+         (indent (subseq line 0 head))
+         (room (max 1 (- width (visible-length indent))))
+         (pieces '()))
+    (loop with rest = (subseq line head)
+          while (plusp (length rest))
+          do (let* ((budget (min (length rest) room))
+                    (break (position #\Space rest :end budget)))
+               (cond
+                 ;; A space inside the budget: break there.
+                 ((and break (plusp break))
+                  (push (subseq rest 0 break) pieces)
+                  (setf rest (string-left-trim '(#\Space #\Tab) (subseq rest break))))
+                 ;; The token is wider than the room: take it whole, and it is
+                 ;; the line that is too long rather than the token that is cut.
+                 (t (let ((later (position #\Space rest :start budget)))
+                      (if (and later (plusp later))
+                          (progn
+                            (push (subseq rest 0 later) pieces)
+                            (setf rest (string-left-trim '(#\Space #\Tab) (subseq rest later))))
+                          (progn (push rest pieces)
+                                 (setf rest ""))))))))
+    (let ((pieces (nreverse pieces)))
+      (cons (concatenate 'string indent (first pieces))
+            (mapcar (lambda (piece) (concatenate 'string indent piece))
+                    (rest pieces))))))
+
 (defun split-string-by-whitespace (string)
   "Split string by whitespace."
   (let ((result '())
@@ -421,22 +475,24 @@ which run of text is the link rather than only that it looks like one."
                   ;; Process inline styles (code, bold, etc.) in header content
                   (styled-content (parse-inline-styles content style)))
              (case level
-               (1 (style-text (concatenate 'string
-                                          (markdown-style-h1-prefix style)
-                                          styled-content)
-                             :color (markdown-style-h1-color style)
-                             :bold (markdown-style-h1-bold style)))
-               (2 (style-text (concatenate 'string
-                                          (markdown-style-h2-prefix style)
-                                          styled-content)
-                             :color (markdown-style-h2-color style)
-                             :bold (markdown-style-h2-bold style)))
-               (3 (style-text (concatenate 'string
-                                          (markdown-style-h3-prefix style)
-                                          styled-content)
-                             :color (markdown-style-h3-color style)
-                             :bold (markdown-style-h3-bold style)))
-               (t (parse-inline-styles trimmed style)))))))
+               (1 (style-text (wrap-with-prefix styled-content
+                                                (markdown-style-h1-prefix style)
+                                                width)
+                              :color (markdown-style-h1-color style)
+                              :bold (markdown-style-h1-bold style)))
+               (2 (style-text (wrap-with-prefix styled-content
+                                                (markdown-style-h2-prefix style)
+                                                width)
+                              :color (markdown-style-h2-color style)
+                              :bold (markdown-style-h2-bold style)))
+               (3 (style-text (wrap-with-prefix styled-content
+                                                (markdown-style-h3-prefix style)
+                                                width)
+                              :color (markdown-style-h3-color style)
+                              :bold (markdown-style-h3-bold style)))
+               ;; A deeper heading is prose that kept its markers, and the
+               ;; markers are the only thing that says what it is.
+               (t (markdown-wrap-text (parse-inline-styles trimmed style) width)))))))
 
       ;; Unordered list: - or *
       ((and (> (length trimmed) 1)
@@ -481,14 +537,13 @@ which run of text is the link rather than only that it looks like one."
       ;; Quote: >
       ((and (> (length trimmed) 0) (char= (char trimmed 0) #\>))
        (let* ((content (string-trim '(#\Space) (subseq trimmed 1)))
-              (indent (markdown-style-quote-indent style))
-              (prefix (markdown-style-quote-prefix style))
-              (styled-content (parse-inline-styles content style)))
-         (style-text (concatenate 'string
-                                 (make-string indent :initial-element #\Space)
-                                 prefix
-                                 styled-content)
-                    :color (markdown-style-quote-color style))))
+              (indent (make-string (markdown-style-quote-indent style)
+                                   :initial-element #\Space))
+              (prefix (concatenate 'string indent (markdown-style-quote-prefix style))))
+         ;; The prefix leads every line, because a wrapped quotation that loses
+         ;; its `│' stops being a quotation and becomes an indented paragraph.
+         (style-text (wrap-with-prefix (parse-inline-styles content style) prefix width)
+                     :color (markdown-style-quote-color style))))
 
       ;; Code block marker: ```
       ((and (>= (length trimmed) 3)
@@ -655,11 +710,12 @@ Example:
                       (margin (markdown-style-code-block-margin style))
                       (indent (make-string margin :initial-element #\Space)))
                  (dolist (code-line (nreverse code-block-lines))
-                   (push (concatenate 'string indent
-                                     (style-text code-line
-                                                :color (markdown-style-code-block-color style)
-                                                :bg (markdown-style-code-block-bg style)))
-                         result)))
+                   (dolist (wrapped (wrap-preformatted code-line (max 1 (- width margin))))
+                     (push (concatenate 'string indent
+                                        (style-text wrapped
+                                                    :color (markdown-style-code-block-color style)
+                                                    :bg (markdown-style-code-block-bg style)))
+                           result))))
                (setf in-code-block nil
                      code-block-lines '()))
              ;; Start code block
