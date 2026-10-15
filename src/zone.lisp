@@ -202,7 +202,7 @@
        (>= (zone-info-end-x zone) (zone-info-start-x zone))
        (>= (zone-info-end-y zone) (zone-info-start-y zone))
        (let ((mx (1- (mouse-event-x msg)))  ; X is 1-based, convert to 0-based
-             (my (- (mouse-event-y msg) 2))) ; Y needs -2 offset (empirically determined)
+             (my (1- (mouse-event-y msg)))) ; Y is 1-based too
          (and (>= mx (zone-info-start-x zone))
               (>= my (zone-info-start-y zone))
               (<= mx (zone-info-end-x zone))
@@ -215,6 +215,6 @@
 (defun zone-pos (zone msg)
   "Get mouse position relative to zone. Returns (values x y) or (values -1 -1)."
   (if (and zone (zone-in-bounds-p zone msg))
-      (values (- (mouse-event-x msg) (zone-info-start-x zone))
-              (- (mouse-event-y msg) (zone-info-start-y zone)))
+      (values (1- (- (mouse-event-x msg) (zone-info-start-x zone)))
+              (1- (- (mouse-event-y msg) (zone-info-start-y zone))))
       (values -1 -1)))

@@ -1198,10 +1198,28 @@ ANSI escape sequences are preserved but not counted for width."
     (format nil "~{~A~^~%~}"
             (mapcar (lambda (line) (concatenate 'string pad line)) lines))))
 
+(defun %osc8-sequence-p (token)
+  "Is TOKEN an OSC 8 hyperlink sequence?"
+  (search (format nil "~C]8;;" #\Escape) token))
+
+(defun %osc8-close-p (token)
+  "Is TOKEN the OSC 8 sequence that ends a hyperlink? An empty URI ends it."
+  (or (string= token (format nil "~C]8;;~C\\" #\Escape #\Escape))
+      (string= token (format nil "~C]8;;~Cz" #\Escape #\Bel))))
+
+(defun %osc8-close ()
+  "The OSC 8 sequence that ends a hyperlink (ST-terminated)."
+  (format nil "~C]8;;~C\\" #\Escape #\Escape))
+
 (defun truncate-text (text width &key (ellipsis "…"))
   "Truncate TEXT to WIDTH visible columns, preserving ANSI sequences.
 If truncation occurs, append ELLIPSIS (default: …).  Text that already
-fits within WIDTH is returned unchanged."
+fits within WIDTH is returned unchanged.
+
+A hyperlink the cut lands inside is closed before the ellipsis, because a
+truncated OSC 8 open with no end would leave every cell after it -- the rest of
+the line and, in a cell buffer, every line below -- pointing at the link the
+reader can no longer see."
   (when (<= (visible-length text) (max 0 width))
     (return-from truncate-text text))
   (let* ((tokens (%tokenize text))
@@ -1210,10 +1228,15 @@ fits within WIDTH is returned unchanged."
          (budget (max 0 (- maxw ellw)))
          (out '())
          (w 0)
+         (link-open nil)
          (truncated nil))
     (dolist (tkn tokens)
       (cond
-        ((%ansi-tokenp tkn) (push (%rtok-text tkn) out))
+        ((%ansi-tokenp tkn)
+         (let ((txt (%rtok-text tkn)))
+           (when (%osc8-sequence-p txt)
+             (setf link-open (not (%osc8-close-p txt))))
+           (push txt out)))
         ((%newline-tokenp tkn) (push (%rtok-text tkn) out))
         (t
          (let* ((txt (%rtok-text tkn))
@@ -1233,7 +1256,9 @@ fits within WIDTH is returned unchanged."
                 (setf truncated t)
                 (return))))))))
     (let ((s (apply #'concatenate 'string (nreverse out))))
-      (if truncated (concatenate 'string s ellipsis) s))))
+      (if truncated
+          (concatenate 'string s ellipsis (if link-open (%osc8-close) ""))
+          s))))
 
 (defun ellipsize (text width)
   "Convenience wrapper around TRUNCATE-TEXT with default ellipsis."

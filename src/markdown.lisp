@@ -256,14 +256,18 @@ Internal helper for markdown rendering."
     ;; Raw SGR string — pass through
     (t color-spec)))
 
-(defun style-text (text &key color bg bold italic underline)
-  "Apply ANSI styling to text. Helper function for markdown rendering."
-  (if (or color bg bold italic underline)
+(defun style-text (text &key color bg bold italic underline hyperlink)
+  "Apply ANSI styling to text. Helper function for markdown rendering.
+HYPERLINK is a URL to wrap TEXT in an OSC 8 hyperlink, so that a terminal that
+understands the sequence -- and a click handler reading the cells it drew -- knows
+which run of text is the link rather than only that it looks like one."
+  (if (or color bg bold italic underline hyperlink)
       (let ((s (make-style :foreground (resolve-markdown-color color)
                           :background (resolve-markdown-color bg)
                           :bold (or bold (eql color :bold))
                           :italic (or italic (eql color :italic))
-                          :underline underline)))
+                          :underline underline
+                          :hyperlink hyperlink)))
         (render-styled s text))
       text))
 
@@ -363,7 +367,8 @@ Internal helper for markdown rendering."
                                       (concatenate 'string result
                                                   (style-text link-text
                                                              :color (markdown-style-link-color style)
-                                                             :underline (markdown-style-link-underline style))))
+                                                             :underline (markdown-style-link-underline style)
+                                                             :hyperlink (subseq text url-start url-end))))
                                 (setf pos (+ url-end 1)))
                               (progn
                                 (setf result (concatenate 'string result (string char)))

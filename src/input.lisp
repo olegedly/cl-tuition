@@ -438,8 +438,12 @@ or DECRPM response (CSI ? mode ; setting $ y)."
                ((or (char= char #\M) (char= char #\m))
                 (setf (aref params param-idx) current-num)
                 (let* ((cb (aref params 0))
-                       (x (1+ (aref params 1)))  ; convert to 1-based
-                       (y (1+ (aref params 2)))  ; convert to 1-based
+                       ;; SGR (1006) coordinates are already 1-based, which is
+                       ;; what MOUSE-EVENT-X and -Y promise. Adding one here put
+                       ;; every report a column right and a row down, so a click
+                       ;; landed on the cell below the one under the pointer.
+                       (x (aref params 1))
+                       (y (aref params 2))
                        (is-press (char= char #\M))
                        (base-button (logand cb 3))
                        (is-motion (logbitp 5 cb))  ; Motion bit (32)

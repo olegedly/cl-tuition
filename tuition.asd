@@ -78,6 +78,7 @@
                              (:file "test-list-component")
                              (:file "test-tree-component")
                              (:file "test-escapes")
+                             (:file "test-markdown")
                              (:file "test-filepicker"))))
   :perform (test-op (o c)
                     (symbol-call :tuition-tests :run-tests)))

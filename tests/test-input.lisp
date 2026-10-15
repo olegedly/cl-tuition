@@ -74,6 +74,28 @@
   (let ((tuition::*input-stream* (make-string-input-stream "")))
     (is (null (tuition::read-key)))))
 
+;;; --- SGR mouse reporting ---
+
+(test read-key-sgr-mouse-click-keeps-its-coordinates
+  "SGR (1006) mouse coordinates are already 1-based, and the event reports them
+as they arrived. Adding one made every click land a column right and a row down."
+  (let ((tuition::*input-stream*
+          (make-string-input-stream (format nil "~C[<0;8;2M" #\Escape))))
+    (let ((msg (tuition::read-key)))
+      (is (mouse-click-msg-p msg))
+      (is (eq :left (mouse-event-button msg)))
+      (is (= 8 (mouse-event-x msg)))
+      (is (= 2 (mouse-event-y msg))))))
+
+(test read-key-sgr-mouse-release-keeps-its-coordinates
+  "The release report carries the same coordinates as the press."
+  (let ((tuition::*input-stream*
+          (make-string-input-stream (format nil "~C[<0;8;2m" #\Escape))))
+    (let ((msg (tuition::read-key)))
+      (is (mouse-release-msg-p msg))
+      (is (= 8 (mouse-event-x msg)))
+      (is (= 2 (mouse-event-y msg))))))
+
 ;;; --- CSI arrow key sequences ---
 
 (test read-key-arrow-up

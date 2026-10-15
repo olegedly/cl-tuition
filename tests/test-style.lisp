@@ -59,6 +59,21 @@
   (let ((linked (render-styled (make-style :hyperlink "https://example.com/some/path") "hello")))
     (is (string= linked (truncate-text linked 6)))))
 
+(test truncate-text-closes-a-link-it-cuts
+  "A cut inside a hyperlink ends the link before the ellipsis, so the cells after
+the cut -- and every line below them -- are not part of a link the reader cannot
+see."
+  (let* ((linked (render-styled (make-style :hyperlink "https://example.com/x")
+                                "averyverylonglinklabel"))
+         (cut (truncate-text linked 10))
+         (cells (parse-styled-string (concatenate 'string cut (format nil "~%tail"))
+                                     40 2)))
+    (is (search (format nil "~C]8;;~C\\" #\Escape #\Escape) cut))
+    ;; The link is on the label, and off again by the ellipsis.
+    (is (equal "https://example.com/x" (cell-link (screen-buffer-ref cells 0 0))))
+    (is (null (cell-link (screen-buffer-ref cells 10 0))))
+    (is (null (cell-link (screen-buffer-ref cells 0 1))))))
+
 ;;; --- color-256, color-rgb, parse-hex-color ---
 
 (test color-256-foreground
